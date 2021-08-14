@@ -1,0 +1,132 @@
+---
+- name: Retrieve letsencrypt wildcard certificate from a public facing webserver
+  hosts: public
+
+  tasks:
+    - name: Retrieve the private key file
+      fetch:
+        src: "{{ cert_path }}/privkey.pem"
+        dest: ./files/privkey.pem
+        flat: True
+
+    - name: Retrieve the certificate file
+      fetch:
+        src: "{{ cert_path }}/fullchain.pem"
+        dest: ./files/fullchain.pem
+        flat: True
+
+- name: Update UniFi CloudKey wildcard cert
+  hosts: cloudkey
+
+  tasks:
+    - name: Copy the private key to the CloudKey certificate path
+      copy:
+        src: ./files/privkey.pem
+        dest: "{{ cert_path }}/cloudkey.key"
+        owner: root
+        group: ssl-cert
+        mode: '0640'
+      register: cloudkey_privkey
+
+    - name: Copy the certificate to the CloudKey certificate path
+      copy:
+        src: ./files/fullchain.pem
+        dest: "{{ cert_path }}/cloudkey.crt"
+        owner: root
+        group: ssl-cert
+        mode: '0640'
+      register: cloudkey_cert
+
+    - name: Proceed to refresh the CloudKey certificates if there was a change to the private key or certificate
+      block:
+        - name:  Decrypt keys and convert certificates to plain text
+          shell: "openssl pkcs12 -export -in {{ cert_path }}/cloudkey.crt -inkey {{ cert_path }}/cloudkey.key -out {{ cert_path }}/cloudkey.p12 -name unifi -password pass:aircontrolenterprise"
+          notify: restart nginx
+
+        - name: Import keys into Java Key Store
+          shell: "keytool -noprompt -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore /usr/lib/unifi/data/keystore -srckeystore {{ cert_path }}/cloudkey.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi"
+          notify: restart unifi
+
+        - name: Create the certificate tar file the CloudKey expects
+          archive:
+            path: "{{ cert_path }}/*"
+            dest: "{{ cert_path }}/cert.tar"
+            format: tar
+
+        - name: Build list of key/certificate files to set ownership/mode on
+          find:
+            paths: "{{ cert_path }}"
+            patterns: "*"
+          register: all_cert_files
+
+        - name: Set cert file ownership/mode
+          file:
+            path: "{{ item.path }}"
+            owner: "root"
+            group: "ssl-cert"
+            mode: '0640'
+          loop: "{{ all_cert_files.files }}"
+      when: cloudkey_privkey.changed or cloudkey_cert.changed
+
+  handlers:
+    - name: restart nginx
+      shell: /etc/init.d/nginx restart
+
+    - name: restart unifi
+      shell: /etc/init.d/unifi restart
+
+- name: Update plex wildcard cert
+  hosts: plex
+
+  tasks:
+    - name: Copy the private key to the plex certificate path
+      copy:
+        src: ./files/privkey.pem
+        dest: "{{ cert_path }}/plex.key"
+        owner: root
+        group: ssl-cert
+        mode: '0640'
+      register: plex_privkey
+
+    - name: Copy the certificate to the plex certificate path
+      copy:
+        src: ./files/fullchain.pem
+        dest: "{{ cert_path }}/plex.crt"
+        owner: root
+        group: ssl-cert
+        mode: '0640'
+      register: plex_cert
+
+    - name: Proceed to refresh the plex certificates if there was a change to the private key or certificate
+      block:
+        - name: Decrypt keys and convert certificates to plain text
+          shell: "openssl pkcs12 -export -in {{ cert_path }}/plex.crt -inkey {{ cert_path }}/plex.key -out {{ plex_certificate_location }} -name plex -password pass:{{ plex_certificate_encryption_key }}"
+          notify: restart plex
+
+        - name: Set pkcs12 cert file ownership/mode
+          file:
+            path: "{{ plex_certificate_location }}"
+            owner: "{{ plex_user }}"
+            group: "{{ plex_group }}"
+            mode: '0640'
+
+        - name: Set Plex Custom certificate location setting
+          xml:
+            path: "{{ plex_preferences_file }}"
+            xpath: /Preferences
+            attribute: customCertificatePath
+            value: "{{ plex_certificate_location }}"
+          notify: restart plex
+
+        - name: Set Plex Custom certificate encryption key setting
+          xml:
+            path: "{{ plex_preferences_file }}"
+            xpath: /Preferences
+            attribute: customCertificateKey
+            value: "{{ plex_certificate_encryption_key }}"
+          notify: restart plex
+      when: plex_privkey.changed or plex_cert.changed
+
+  handlers:
+    - name: restart plex
+      shell: systemctl restart plexmediaserver

@@ -1,0 +1,9 @@
+---
+collections:
+  - devsec.hardening
+
+roles:
+  - ljurgs.fix_debian_errors
+  - geerlingguy.mysql
+  - jnv.unattended-upgrades
+  - oefenweb.postfix
