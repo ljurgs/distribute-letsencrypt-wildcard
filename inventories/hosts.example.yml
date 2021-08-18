@@ -1,0 +1,26 @@
+---
+public:
+  hosts:
+    web-a:
+      ansible_become_pass: # FILLIFSUDOING
+      cert_path: /etc/letsencrypt/live/yourpublicwebserver.tld
+
+usg:
+  hosts:
+    router: {}
+
+cloudkey:
+  hosts:
+    unifi-cloudkey:
+      cert_path: /etc/ssl/private
+
+plex:
+  hosts:
+    media:
+      ansible_become_pass: # FILLIFSUDOING
+      cert_path: /etc/ssl/private
+      plex_user: plex
+      plex_group: plex
+      plex_preferences_file: /var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Preferences.xml
+      plex_certificate_location: /var/lib/plexmediaserver/plex.p12
+      plex_certificate_encryption_key: password
