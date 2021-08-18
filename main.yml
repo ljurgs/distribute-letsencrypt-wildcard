@@ -15,6 +15,34 @@
         dest: ./files/fullchain.pem
         flat: True
 
+
+
+- name: Update Unifi Security Gateway wildcard cert
+  hosts: usg
+
+  tasks:
+    - name: Join the private key and the certificate together on Unifi Security Gateway
+      assemble:
+        src: ./files
+        regexp: '.*\.pem'
+        remote_src: False
+        dest: /etc/lighttpd/server.pem
+        owner: root
+        group: root
+        mode: '0400'
+      notify: "restart lighttpd"
+
+  handlers:
+    - name: stop lighttpd
+      shell: kill -2 $(cat /var/run/lighttpd.pid)
+      listen: "restart lighttpd"
+
+    - name: start lighttpd
+      shell: /usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf
+      listen: "restart lighttpd"
+
+
+
 - name: Update UniFi CloudKey wildcard cert
   hosts: cloudkey
 
@@ -39,7 +67,7 @@
 
     - name: Proceed to refresh the CloudKey certificates if there was a change to the private key or certificate
       block:
-        - name:  Decrypt keys and convert certificates to plain text
+        - name: Decrypt keys and convert certificates to plain text
           shell: "openssl pkcs12 -export -in {{ cert_path }}/cloudkey.crt -inkey {{ cert_path }}/cloudkey.key -out {{ cert_path }}/cloudkey.p12 -name unifi -password pass:aircontrolenterprise"
           notify: restart nginx
 
@@ -70,10 +98,12 @@
 
   handlers:
     - name: restart nginx
-      shell: /etc/init.d/nginx restart
+      command: /etc/init.d/nginx restart
 
     - name: restart unifi
-      shell: /etc/init.d/unifi restart
+      command: /etc/init.d/unifi restart
+
+
 
 - name: Update plex wildcard cert
   hosts: plex
@@ -129,4 +159,4 @@
 
   handlers:
     - name: restart plex
-      shell: systemctl restart plexmediaserver
+      command: systemctl restart plexmediaserver
